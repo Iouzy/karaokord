@@ -24,8 +24,15 @@ console.log("\n  🎤 Karaokord\n");
 
 // Check the picture worker once, so a typo in the address shows up now and not as a missing picture.
 if (cfg.cardUrl) {
+  const { VERSION } = await import("../worker/karaokord-card.js");
   fetch(`${cfg.cardUrl}/`, { signal: AbortSignal.timeout(8000) })
-    .then(async (r) => (await r.text()).includes("running") ? log.info("Karaoke pictures: ready") : log.warn(`Karaoke pictures: ${cfg.cardUrl} answered, but it isn't the Karaokord worker. Check "cardUrl".`))
+    .then(async (r) => {
+      const text = await r.text();
+      if (!text.includes("running")) return log.warn(`Karaoke pictures: ${cfg.cardUrl} answered, but it isn't the Karaokord worker. Check "cardUrl".`);
+      const live = Number(text.match(/version (\d+)/)?.[1] ?? 1);
+      if (live < VERSION) log.warn("Karaoke pictures: your worker in Cloudflare is out of date, so new features won't show. Paste the newest worker/karaokord-card.js into it (Edit code → replace everything → Deploy).");
+      else log.info(`Karaoke pictures: ready (${cfg.style}${cfg.bubbles ? " with bubbles" : ""})`);
+    })
     .catch((e) => log.warn(`Karaoke pictures: couldn't reach ${cfg.cardUrl} (${e.message}). Check "cardUrl".`));
 } else log.info('Karaoke pictures: off (add "cardUrl" to config.json to light up each word, README step 3)');
 

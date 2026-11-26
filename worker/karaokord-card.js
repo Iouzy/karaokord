@@ -11,9 +11,11 @@
 //     c  the song's colour as 6 hex digits (from the album cover); the picture is themed with it
 //     e  until when the equalizer keeps moving after the last word (hundredths of a second, base 36),
 //        so the picture doesn't freeze while waiting for the next line
+//     v  background: a style letter (o orb, b bars, w wave, r rings, n none) and 1/0 for bubbles
 //
 // The picture plays once and then stays on the last line.
 
+export const VERSION = 5; // raise when the picture changes, so the program can say "paste the new code"
 const SIZE = 128;      // picture is 128 × 128
 const S = 2;           // font scale
 const CW = 6 * S;      // character cell width
@@ -256,9 +258,9 @@ function gif(frames, palette = DEFAULT_PALETTE) {
 // ─── The picture ─────────────────────────────────────────────────────────────
 // A "bass hit" on each word: the text drops, wobbles sideways and settles (hundredths of a second).
 const HIT = [{ dx: 0, dy: 5, t: 4 }, { dx: 2, dy: -2, t: 4 }, { dx: -2, dy: 1, t: 4 }];
-const IDLE_STEP = 20; // between words, the equalizer moves on its own every 0.2 s
+const IDLE_STEP = 20; // between words the background keeps moving: a new picture every 0.2 s
 const TAIL_STEP = 30, MAX_TAIL = 2000; // after the last word: every 0.3 s, for up to 20 s
-const ORB_X = 64, ORB_Y = 72, ORB_R = 26, SPIKES = 28;
+const CX = 64, CY = 72; // centre of the background effects
 // Bubbles drifting up behind the words: [x, speed, phase, size]
 const BUBBLES = [[14, 9, 0, 2], [30, 6, 40, 1], [47, 11, 75, 2], [80, 7, 20, 1], [96, 10, 60, 2], [112, 8, 90, 1], [60, 5, 105, 1], [122, 12, 33, 1]];
 
@@ -270,32 +272,73 @@ function pulseAt(t, starts) {
 }
 
 const wob = (k, t) => Math.sin(k * 1.7 + t * 0.09) * 0.5 + Math.sin(k * 3.1 - t * 0.05) * 0.5; // -1..1
+const dot2 = (px, x, y, c) => { if (y > BAND) dot(px, Math.round(x), Math.round(y), c); };
 
-/**
- * t moves the top band; orbT and orbPulse move the orb and bubbles. Between words only the band
- * keeps moving: a small part of the picture, so the worker stays fast.
- */
-// The orb and bubbles below the band, drawn once per (orbT, bubT) and reused.
-function orbLayer(orbT, orbPulse, bubT) {
-  const px = new Uint8Array(SIZE * SIZE);
-  const r = ORB_R + orbPulse * 5;
+// ─── Background styles (colours: 1 = soft, 7 = strong, 6 = light) ────────────
+/** A dark orb that breathes, ringed with spikes that dance and jump on every word. */
+function orb(px, t, pulse) {
+  const r = 26 + pulse * 5 + Math.sin(t * 0.06) * 1.5;
   const r2 = r * r;
-  for (let y = Math.max(BAND, Math.floor(ORB_Y - r)); y <= Math.min(SIZE - 1, ORB_Y + r); y++) {
-    const dy = y - ORB_Y, half = Math.sqrt(Math.max(0, r2 - dy * dy));
-    px.fill(1, y * SIZE + Math.max(0, Math.ceil(ORB_X - half)), y * SIZE + Math.min(SIZE, Math.floor(ORB_X + half) + 1));
+  for (let y = Math.max(BAND + 1, Math.floor(CY - r)); y <= Math.min(SIZE - 1, CY + r); y++) {
+    const dy = y - CY, half = Math.sqrt(Math.max(0, r2 - dy * dy));
+    px.fill(1, y * SIZE + Math.max(0, Math.ceil(CX - half)), y * SIZE + Math.min(SIZE, Math.floor(CX + half) + 1));
   }
-  for (let k = 0; k < SPIKES; k++) {
-    const a = (k / SPIKES) * Math.PI * 2 + orbT * 0.004;
-    const len = 3 + (wob(k, orbT) + 1) * 2.5 + orbPulse * (4 + 4 * Math.abs(wob(k + 7, orbT)));
+  for (let k = 0; k < 28; k++) {
+    const a = (k / 28) * Math.PI * 2 + t * 0.01;
+    const len = 3 + (wob(k, t) + 1) * 3 + pulse * (4 + 5 * Math.abs(wob(k + 7, t)));
     const ca = Math.cos(a), sa = Math.sin(a);
-    for (let d = r + 1; d < r + len; d += 1.5) {
-      const x = Math.round(ORB_X + ca * d), y = Math.round(ORB_Y + sa * d);
-      if (y > BAND) rect(px, x, y, 2, 2, 7);
+    for (let d = r + 1; d < r + len; d += 1.5) dot2(px, CX + ca * d, CY + sa * d, 7);
+  }
+}
+
+/** A spectrum: bars rising from the bottom, jumping on every word. */
+function bars(px, t, pulse) {
+  for (let k = 0; k < 16; k++) {
+    const h = Math.round(6 + (wob(k, t * 1.3) + 1) * 7 + pulse * (8 + 12 * Math.abs(wob(k + 5, t))));
+    const x = 1 + k * 8;
+    rect(px, x, SIZE - h, 6, h, 1);
+    rect(px, x, SIZE - h, 6, 2, 7);
+  }
+}
+
+/** Sound waves across the middle that swell on every word. */
+function waves(px, t, pulse) {
+  for (let j = 0; j < 3; j++) {
+    const amp = (5 + pulse * 13) * (j === 0 ? 1 : 0.55);
+    for (let x = 0; x < SIZE; x += 2) {
+      const y = CY + Math.sin(x * 0.07 + t * 0.12 + j * 2.1) * amp * Math.sin((x / SIZE) * Math.PI);
+      dot2(px, x, y, j === 0 ? 7 : 1);
     }
   }
-  for (const [bx, speed, phase, size] of BUBBLES) {
-    const y = SIZE - (((bubT * speed) / 40 + phase) % (SIZE - BAND));
-    rect(px, Math.round(bx + Math.sin((bubT + phase * 9) / 30) * 2), Math.round(y), size + 1, size + 1, 6);
+}
+
+/** Rings that spread out from the centre each time a word is sung, over rings that slowly breathe. */
+function rings(px, t, pulse, starts) {
+  const circle = (r, c) => {
+    const n = Math.max(24, Math.round(r * 2.4)); // enough 2×2 dots for a solid line
+    for (let k = 0; k < n; k++) { const a = (k / n) * Math.PI * 2; dot2(px, CX + Math.cos(a) * r, CY + Math.sin(a) * r, c); }
+  };
+  // Background rings that always breathe, so the picture is never empty.
+  for (let j = 0; j < 2; j++) circle(20 + j * 18 + Math.sin(t * 0.07 + j * 1.3) * 2.5 + pulse * 3, 1);
+  // A bright ring for each word, spreading out and fading.
+  for (const s of starts) {
+    if (s > t) break;
+    const age = t - s;
+    if (age > 110) continue;
+    circle(8 + age * 0.7, age < 70 ? 7 : 1);
+  }
+}
+
+const STYLES = { o: orb, b: bars, w: waves, r: rings, n: () => {} };
+
+function backdrop(look, t, pulse, starts) {
+  const px = new Uint8Array(SIZE * SIZE);
+  (STYLES[look.style] ?? orb)(px, t, pulse, starts);
+  if (look.bubbles) {
+    for (const [bx, speed, phase, size] of BUBBLES) {
+      const y = SIZE - (((t * speed) / 40 + phase) % (SIZE - BAND));
+      rect(px, Math.round(bx + Math.sin((t + phase * 9) / 30) * 2), Math.round(y), size + 1, size + 1, 6);
+    }
   }
   return px;
 }
@@ -312,20 +355,13 @@ function drawBand(px, t, pulse, flash) {
   }
 }
 
-/** One picture: the orb layer, the words drawn on top, and the band. */
-function compose(orb, boxes, colorOf, dx, dy, t, pulse, flash) {
-  const px = orb.slice();
-  for (const b of boxes) drawText(px, b, colorOf(b.word), dx, dy);
-  drawBand(px, t, pulse, flash);
-  return px;
-}
-
 /**
  * lines:     the lines to show, each a list of words. The picture turns the page to the next line
  *            when its first word starts, so fast lines aren't skipped.
  * offsetsCs: when each word starts (all lines, in order), in hundredths of a second from load.
+ * look:      { style: "o" orb | "b" bars | "w" wave | "r" rings | "n" none, bubbles: true/false }
  */
-export function renderCard(lines, offsetsCs, bass = false, color = null, holdUntil = 0) {
+export function renderCard(lines, offsetsCs, bass = false, color = null, holdUntil = 0, look = { style: "o", bubbles: true }) {
   const pages = [], pageOf = [];
   let first = 0;
   for (const ws of lines) {
@@ -345,10 +381,9 @@ export function renderCard(lines, offsetsCs, bass = false, color = null, holdUnt
   let page = 0;
   for (const i of sung) page = Math.max(page, pageOf[i]);
 
-  // Scenes: what the words look like from time t. The visualizer is drawn for each frame's own time.
+  // Scenes: what the words look like from time t. The background is drawn for each frame's own time.
   const scenes = [];
-  // orbT: the moment the orb and bubbles are drawn at for this scene (they only move twice per word).
-  const at = (t, boxes, colorOf, shake = null, orbT = t) => scenes.push({ t, boxes, colorOf, shake, orbT });
+  const at = (t, boxes, colorOf, shake = null) => scenes.push({ t, boxes, colorOf, shake });
   at(0, pages[page], colorFor(null));
   order.forEach((i, k) => {
     const t = offsetsCs[i];
@@ -363,31 +398,22 @@ export function renderCard(lines, offsetsCs, bass = false, color = null, holdUnt
       page = pageOf[i];
     }
     const boxes = pages[page], colorOf = colorFor(i);
-    // On the word: the orb pulses (and the text shakes, with bass); 0.12 s later the orb settles.
+    // On the word the background jumps (and the text shakes, with bass), then settles.
     if (next - t >= 24) {
-      if (bass) {
-        // The orb settles during the last wobble, so it doesn't need a picture of its own.
-        let start = t;
-        HIT.forEach((h, n) => { at(start, boxes, colorOf, { ...h, flash: n === 0 }, n < 2 ? t : t + 12); start += h.t; });
-      } else at(t, boxes, colorOf, null, t);
-      at(t + 12, boxes, colorOf, null, t + 12);
-      for (const sc of scenes.slice(-4)) if (sc.t >= t) sc.bubT = t;
-    } else at(t, boxes, colorOf, null, t);
+      if (bass) { let start = t; HIT.forEach((h, n) => { at(start, boxes, colorOf, { ...h, flash: n === 0 }); start += h.t; }); }
+      else at(t, boxes, colorOf);
+      at(t + 12, boxes, colorOf);
+    } else at(t, boxes, colorOf);
     sung.add(i);
   });
   const end = order.length ? offsetsCs[order.at(-1)] + 60 : 0;
   if (order.length) at(end, pages[page], colorFor(null));
 
-  // Frames: every scene change, plus in-between frames so the visualizer keeps moving.
-  const frames = [];
-  const orbs = new Map();
-  const orbFor = (orbT, bubT) => {
-    const key = `${orbT}|${bubT}`;
-    if (!orbs.has(key)) orbs.set(key, orbLayer(orbT, pulseAt(orbT, starts), bubT));
-    return orbs.get(key);
-  };
-  // After the last word the band keeps moving until the next line is due, then the picture rests.
+  // Frames: every scene change, plus in-between frames so the background keeps moving.
+  // With no background effect only the band moves, and those frames are cheap.
+  const still = look.style === "n" && !look.bubbles;
   const tailEnd = Math.min(Math.max(holdUntil, end), end + MAX_TAIL);
+  const frames = [];
   scenes.forEach((sc, n) => {
     const until = scenes[n + 1]?.t;
     if (until !== undefined && until - sc.t < 2) return; // browsers slow down frames this short
@@ -395,14 +421,17 @@ export function renderCard(lines, offsetsCs, bass = false, color = null, holdUnt
     if (until !== undefined && !sc.shake) for (let tt = sc.t + IDLE_STEP; tt < until - 4; tt += IDLE_STEP) times.push(tt);
     if (until === undefined) for (let tt = sc.t + TAIL_STEP; tt <= tailEnd; tt += TAIL_STEP) times.push(tt);
     const s = sc.shake;
-    const orb = orbFor(sc.orbT, sc.bubT ?? sc.orbT);
     let px = null;
     times.forEach((tt, m) => {
-      // Between words only the band changes: reuse the picture and redraw the band.
-      if (m === 0) px = compose(orb, sc.boxes, sc.colorOf, s?.dx ?? 0, s?.dy ?? 0, tt, pulseAt(tt, starts), !!s?.flash);
-      else { px = px.slice(); drawBand(px, tt, pulseAt(tt, starts), false); }
+      const pulse = pulseAt(tt, starts);
+      if (still && m > 0) { px = px.slice(); drawBand(px, tt, pulse, false); }
+      else {
+        px = backdrop(look, tt, pulse, starts);
+        for (const b of sc.boxes) drawText(px, b, sc.colorOf(b.word), s?.dx ?? 0, s?.dy ?? 0);
+        drawBand(px, tt, pulse, !!s?.flash);
+      }
       const stop = m + 1 < times.length ? times[m + 1] : until;
-      frames.push({ px, delay: stop === undefined ? 0 : stop - tt, bandOnly: m > 0 });
+      frames.push({ px, delay: stop === undefined ? 0 : stop - tt, bandOnly: still && m > 0 });
     });
   });
   return gif(frames, paletteFor(color));
@@ -428,21 +457,27 @@ export function parseRequest(url) {
   const bass = url.searchParams.get("fx") === "b";
   const color = url.searchParams.get("c");
   const hold = parseInt(url.searchParams.get("e") ?? "", 36);
-  return { lines, words, offsets, bass, color, hold: Number.isFinite(hold) ? hold : 0 };
+  // v: background style letter and bubbles on/off, e.g. "o1" (orb with bubbles) or "b0".
+  const v = url.searchParams.get("v") ?? "o1";
+  const look = { style: "obwrn".includes(v[0]) ? v[0] : "o", bubbles: v[1] !== "0" };
+  return { lines, words, offsets, bass, color, hold: Number.isFinite(hold) ? hold : 0, look };
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname === "/") return new Response("Karaokord card is running. Pictures are at /l.gif?t=…&w=…", { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    // The version lets the program tell when the code pasted into Cloudflare is out of date.
+    if (url.pathname === "/") return new Response(`Karaokord card is running (version ${VERSION}). Pictures are at /l.gif?t=…&w=…`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
     if (url.pathname !== "/l.gif") return new Response("Not found", { status: 404 });
     const cache = globalThis.caches?.default;
-    const hit = cache && (await cache.match(request));
+    // Saved pictures are kept per code version, so after an update no picture from older code is reused.
+    const key = new Request(`${url.origin}${url.pathname}${url.search}&_code=${VERSION}`);
+    const hit = cache && (await cache.match(key));
     if (hit) return hit;
-    const { lines, offsets, bass, color, hold } = parseRequest(url);
-    const body = renderCard(lines.length ? lines : [["♪"]], lines.length ? offsets : [0], bass, color, hold);
+    const { lines, offsets, bass, color, hold, look } = parseRequest(url);
+    const body = renderCard(lines.length ? lines : [["♪"]], lines.length ? offsets : [0], bass, color, hold, look);
     const res = new Response(body, { headers: { "Content-Type": "image/gif", "Cache-Control": "public, max-age=31536000, immutable" } });
-    if (cache && ctx) ctx.waitUntil(cache.put(request, res.clone()));
+    if (cache && ctx) ctx.waitUntil(cache.put(key, res.clone()));
     return res;
   },
 };

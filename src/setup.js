@@ -40,7 +40,12 @@ if (cfg.cardUrl) {
   console.log(res.includes("running") ? "   ✓ The worker is running." : `   ⚠ That address didn't answer like the Karaokord worker (${res.slice(0, 80)}). You can fix it later in config.json.`);
 }
 
-for (const [k, v] of Object.entries({ syncOffsetMs: 1500, bass: true, showNextLine: true, songColors: true })) cfg[k] ??= v;
+if (cfg.cardUrl) {
+  console.log(`\n${bold("Picture background")}: orb, bars, wave, rings or none.`);
+  cfg.style = await ask("   Style", cfg.style || "orb", (a) => ["orb", "bars", "wave", "rings", "none"].includes(a), "Pick one of: orb, bars, wave, rings, none.");
+}
+
+for (const [k, v] of Object.entries({ syncOffsetMs: 1500, bass: true, showNextLine: true, songColors: true, style: "orb", bubbles: true })) cfg[k] ??= v;
 for (const k of ["spotifyClientId", "cardUrl"]) if (!cfg[k]) delete cfg[k];
 writeFileSync("config.json", `${JSON.stringify(cfg, null, 2)}\n`);
 rl.close();

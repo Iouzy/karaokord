@@ -5,5 +5,7 @@
   "syncOffsetMs": 1500,
   "bass": true,
   "showNextLine": true,
-  "songColors": true
+  "songColors": true,
+  "style": "orb",
+  "bubbles": true
 }

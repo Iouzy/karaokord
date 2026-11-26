@@ -9,8 +9,9 @@ status, and the picture lights up every word right on time, with a little bass b
 - 🔦 **Word-by-word karaoke picture**: each word lights up as it's sung. Fast verses get several
   lines in one picture, so nothing is skipped.
 - 🎨 **Every song has its own colours**, picked from its album cover.
-- 🔮 **A visualizer orb** behind the words pulses on every word, with bubbles drifting up and an
-  equalizer that never sits still.
+- 🔮 **A moving background** behind the words that jumps on every word: an **orb**, spectrum
+  **bars**, sound **waves** or spreading **rings**, with bubbles drifting up and an equalizer that
+  never sits still.
 - 🔊 **Bass mode**: the picture jumps on every word. On for every song, or only the ones you pick.
 - 📏 **Progress bar** that follows the song, plus a "Listen on Spotify" button for your friends.
 - ✅ **Uses Discord's official Rich Presence**, the same thing games use. No user token, no
@@ -82,7 +83,8 @@ as `cardUrl`. Or by hand:
 3. Opening the worker's address should say **"Karaokord card is running"**.
 4. Put the address in `config.json` as `cardUrl`.
 
-One request per lyric line, far below the free plan's 100,000 a day. Without a worker, Karaokord
+When Karaokord starts it checks the worker's version and tells you if it's time to paste the newest
+code. One request per lyric line, far below the free plan's 100,000 a day. Without a worker, Karaokord
 still works and shows the album cover instead.
 
 ### 4. Start
@@ -104,6 +106,8 @@ Play something on Spotify. Your status follows the song, and clears when you pau
 | `bass` | `true` | `true`, `false`, or a list of song names, like `["never gonna", "bohemian"]` |
 | `showNextLine` | `true` | Show the next line under the current one |
 | `songColors` | `true` | Theme each picture with the colours of the album cover |
+| `style` | `"orb"` | The moving background: `"orb"`, `"bars"`, `"wave"`, `"rings"` or `"none"` |
+| `bubbles` | `true` | Bubbles drifting up behind the words |
 
 ## Good to know
 

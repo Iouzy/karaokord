@@ -20,7 +20,7 @@ function timedWords(lines, j) {
  * before the next status update can arrive, so the picture turns to them by itself and fast
  * lines aren't skipped.
  */
-export function cardUrl(base, lines, idx, pos, bass, color = null) {
+export function cardUrl(base, lines, idx, pos, bass, color = null, look = { style: "orb", bubbles: true }) {
   if (!lines[idx].text?.trim()) return null;
   const until = pos + MIN_GAP + 1000;
   const chosen = [idx];
@@ -33,7 +33,7 @@ export function cardUrl(base, lines, idx, pos, bass, color = null) {
   const hold = Math.max(0, Math.min(2000, Math.round((nextMs - pos) / 10) + 200)).toString(36);
   const build = (wordLines) => {
     const flat = wordLines.flat();
-    return `${base}/l.gif?t=${enc(wordLines.map((ws) => ws.map((w) => clean(w.text)).join(" ")).join("~"))}&w=${flat.map((w) => cs(w.ms)).join(".")}${bass ? "&fx=b" : ""}${color ? `&c=${color}` : ""}&e=${hold}`;
+    return `${base}/l.gif?t=${enc(wordLines.map((ws) => ws.map((w) => clean(w.text)).join(" ")).join("~"))}&w=${flat.map((w) => cs(w.ms)).join(".")}${bass ? "&fx=b" : ""}${color ? `&c=${color}` : ""}&e=${hold}&v=${look.style[0]}${look.bubbles ? 1 : 0}`;
   };
   // Discord takes addresses up to 256 characters: drop later lines first, then sung words.
   for (let n = chosen.length; n >= 1; n--) {
@@ -130,7 +130,7 @@ export class Karaoke {
       const next = lines.slice(idx + 1).find((l) => l.text)?.text;
       a.details = idx < 0 ? "♪ (intro)" : sung.length ? sung.join(" / ") : "♪ ♪ ♪";
       a.state = cfg.showNextLine && next ? `↳ ${next}` : t.artist;
-      const card = idx >= 0 && cfg.cardUrl ? cardUrl(cfg.cardUrl, lines, idx, pos, useBass(cfg.bass, t), this.color) : null;
+      const card = idx >= 0 && cfg.cardUrl ? cardUrl(cfg.cardUrl, lines, idx, pos, useBass(cfg.bass, t), this.color, { style: cfg.style, bubbles: cfg.bubbles }) : null;
       if (card) {
         a.largeImage = card;
         a.largeText = `${t.title} · ${t.artist}`;

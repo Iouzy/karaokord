@@ -16,5 +16,8 @@ export function loadConfig() {
     bass: raw.bass ?? true,
     showNextLine: raw.showNextLine ?? true,
     songColors: raw.songColors ?? true,
+    // The moving background behind the words, and the bubbles drifting up
+    style: ["orb", "bars", "wave", "rings", "none"].includes(raw.style) ? raw.style : "orb",
+    bubbles: raw.bubbles ?? true,
   };
 }
