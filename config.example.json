@@ -4,5 +4,6 @@
   "cardUrl": "https://karaokord.YOUR-NAME.workers.dev",
   "syncOffsetMs": 1500,
   "bass": true,
-  "showNextLine": true
+  "showNextLine": true,
+  "songColors": true
 }
