@@ -1,0 +1,8 @@
+{
+  "clientId": "YOUR_DISCORD_APPLICATION_ID",
+  "spotifyClientId": "YOUR_SPOTIFY_CLIENT_ID",
+  "cardUrl": "https://karaokord.YOUR-NAME.workers.dev",
+  "syncOffsetMs": 1500,
+  "bass": true,
+  "showNextLine": true
+}
