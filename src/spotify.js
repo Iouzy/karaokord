@@ -88,6 +88,7 @@ export class Spotify {
 
   /** Returns the playing track with its position, or null when nothing is playing. */
   async nowPlaying() {
+    const sent = Date.now();
     const res = await fetch("https://api.spotify.com/v1/me/player/currently-playing?additional_types=track", {
       headers: { Authorization: `Bearer ${await this.accessToken()}` },
       signal: AbortSignal.timeout(8000),
@@ -105,11 +106,13 @@ export class Spotify {
       artist: t.artists.map((a) => a.name).join(", "),
       album: t.album?.name,
       art: t.album?.images?.[0]?.url,
+      artSmall: t.album?.images?.at(-1)?.url, // the smallest cover, for picking the song's colour
       url: t.external_urls?.spotify,
       durationMs: t.duration_ms,
       progressMs: d.progress_ms ?? 0,
       playing: d.is_playing,
-      fetchedAt: Date.now(),
+      // Spotify measured the position partway through the request, not when the answer arrived.
+      fetchedAt: sent + (Date.now() - sent) / 2,
     };
   }
 }

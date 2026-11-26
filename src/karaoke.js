@@ -1,5 +1,6 @@
 // The lyrics logic: follows the song, picks the line being sung, and builds the karaoke picture's address.
 import { findLyrics, searchTrack } from "./lrclib.js";
+import { songColor } from "./color.js";
 
 const MIN_GAP = 4000; // Discord's update limit
 const EQ = ["▁▃▅▇", "▃▇▅▂", "▅▂▇▃", "▇▅▃▁", "▂▅▇▅", "▄▆▂▇"];
@@ -19,7 +20,7 @@ function timedWords(lines, j) {
  * before the next status update can arrive, so the picture turns to them by itself and fast
  * lines aren't skipped.
  */
-export function cardUrl(base, lines, idx, pos, bass) {
+export function cardUrl(base, lines, idx, pos, bass, color = null) {
   if (!lines[idx].text?.trim()) return null;
   const until = pos + MIN_GAP + 1000;
   const chosen = [idx];
@@ -29,7 +30,7 @@ export function cardUrl(base, lines, idx, pos, bass) {
   const enc = (s) => encodeURIComponent(s).replace(/%20/g, "+");
   const build = (wordLines) => {
     const flat = wordLines.flat();
-    return `${base}/l.gif?t=${enc(wordLines.map((ws) => ws.map((w) => clean(w.text)).join(" ")).join("~"))}&w=${flat.map((w) => cs(w.ms)).join(".")}${bass ? "&fx=b" : ""}`;
+    return `${base}/l.gif?t=${enc(wordLines.map((ws) => ws.map((w) => clean(w.text)).join(" ")).join("~"))}&w=${flat.map((w) => cs(w.ms)).join(".")}${bass ? "&fx=b" : ""}${color ? `&c=${color}` : ""}`;
   };
   // Discord takes addresses up to 256 characters: drop later lines first, then sung words.
   for (let n = chosen.length; n >= 1; n--) {
@@ -71,6 +72,8 @@ export class Karaoke {
     if (now && now.id !== this.track?.id) {
       this.track = now;
       this.lyrics = null;
+      this.color = null;
+      if (this.cfg.songColors !== false) songColor(now.artSmall ?? now.art).then((c) => { if (this.track?.id === now.id) this.color = c; });
       this.log.info(`▶ ${now.title} · ${now.artist}`);
       findLyrics(now)
         .then((l) => { if (this.track?.id === now.id) { this.lyrics = l; this.log.info(l?.lines?.length ? `  lyrics found${l.wordTimed ? " (word by word)" : " (line by line)"}` : "  no timed lyrics for this song"); } })
@@ -82,8 +85,12 @@ export class Karaoke {
   async demo(query) {
     const found = await searchTrack(query);
     if (!found) throw new Error(`no timed lyrics found for "${query}"`);
-    this.track = { ...found, playing: true, progressMs: 0, fetchedAt: Date.now() };
+    // LRCLIB has no covers, so the demo borrows one from Apple's public search (no key needed).
+    const art = await fetch(`https://itunes.apple.com/search?${new URLSearchParams({ term: `${found.artist} ${found.title}`, entity: "song", limit: "1" })}`, { signal: AbortSignal.timeout(6000) })
+      .then((r) => r.json()).then((d) => d.results?.[0]?.artworkUrl100).catch(() => null);
+    this.track = { ...found, playing: true, progressMs: 0, fetchedAt: Date.now(), art: art?.replace("100x100", "600x600"), artSmall: art };
     this.lyrics = { lines: found.lines, wordTimed: found.wordTimed };
+    if (this.cfg.songColors !== false) this.color = await songColor(art);
     this.log.info(`▶ ${found.title} · ${found.artist} (demo)`);
     return found;
   }
@@ -120,7 +127,7 @@ export class Karaoke {
       const next = lines.slice(idx + 1).find((l) => l.text)?.text;
       a.details = idx < 0 ? "♪ (intro)" : sung.length ? sung.join(" / ") : "♪ ♪ ♪";
       a.state = cfg.showNextLine && next ? `↳ ${next}` : t.artist;
-      const card = idx >= 0 && cfg.cardUrl ? cardUrl(cfg.cardUrl, lines, idx, pos, useBass(cfg.bass, t)) : null;
+      const card = idx >= 0 && cfg.cardUrl ? cardUrl(cfg.cardUrl, lines, idx, pos, useBass(cfg.bass, t), this.color) : null;
       if (card) {
         a.largeImage = card;
         a.largeText = `${t.title} · ${t.artist}`;

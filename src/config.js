@@ -15,5 +15,6 @@ export function loadConfig() {
     syncOffsetMs: raw.syncOffsetMs ?? 1500,
     bass: raw.bass ?? true,
     showNextLine: raw.showNextLine ?? true,
+    songColors: raw.songColors ?? true,
   };
 }

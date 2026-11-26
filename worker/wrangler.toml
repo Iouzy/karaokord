@@ -1,0 +1,3 @@
+name = "karaokord"
+main = "karaokord-card.js"
+compatibility_date = "2025-01-01"

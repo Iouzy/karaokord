@@ -4,15 +4,29 @@
   "description": "Your Spotify lyrics as karaoke in your Discord status: every word lights up on time, with a bass bounce.",
   "type": "module",
   "main": "src/index.js",
-  "bin": { "karaokord": "src/index.js" },
+  "bin": {
+    "karaokord": "src/index.js"
+  },
   "scripts": {
+    "setup": "node src/setup.js",
     "start": "node src/index.js",
     "demo": "node src/index.js --demo"
   },
-  "keywords": ["discord", "rich-presence", "spotify", "lyrics", "karaoke", "lrclib", "cloudflare-workers"],
-  "engines": { "node": ">=18" },
+  "keywords": [
+    "discord",
+    "rich-presence",
+    "spotify",
+    "lyrics",
+    "karaoke",
+    "lrclib",
+    "cloudflare-workers"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "license": "MIT",
   "dependencies": {
-    "@xhayper/discord-rpc": "^1.5.1"
+    "@xhayper/discord-rpc": "^1.5.1",
+    "jpeg-js": "^0.4.4"
   }
 }

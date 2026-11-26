@@ -8,6 +8,9 @@ status, and the picture lights up every word right on time, with a little bass b
 - 🎵 **Synced lyrics**: the line being sung right now, with the next line underneath.
 - 🔦 **Word-by-word karaoke picture**: each word lights up as it's sung. Fast verses get several
   lines in one picture, so nothing is skipped.
+- 🎨 **Every song has its own colours**, picked from its album cover.
+- 🔮 **A visualizer orb** behind the words pulses on every word, with bubbles drifting up and an
+  equalizer that never sits still.
 - 🔊 **Bass mode**: the picture jumps on every word. On for every song, or only the ones you pick.
 - 📏 **Progress bar** that follows the song, plus a "Listen on Spotify" button for your friends.
 - ✅ **Uses Discord's official Rich Presence**, the same thing games use. No user token, no
@@ -34,13 +37,17 @@ You need [Node.js 18+](https://nodejs.org) and the Discord **desktop** app.
 git clone https://github.com/Iouzy/karaokord
 cd karaokord
 npm install
-cp config.example.json config.json      # on Windows: copy config.example.json config.json
+npm run setup
 ```
+
+`npm run setup` opens each page below, asks for the IDs and writes `config.json` for you. On
+Windows you can also just double-click **`start.bat`**: it installs, runs the setup the first
+time, and starts. (Prefer doing it by hand? Copy `config.example.json` to `config.json`.)
 
 ### 1. A Discord app (gives your status its name)
 
 1. Open <https://discord.com/developers/applications> and click **New Application**. Any name works.
-2. Copy the **Application ID** into `config.json` as `clientId`.
+2. Copy the **Application ID** (`clientId`).
 
 Try it right away, no Spotify needed:
 
@@ -54,7 +61,7 @@ Open your Discord profile: the lyrics play through your status.
 
 1. Open <https://developer.spotify.com/dashboard> and click **Create app**.
 2. Redirect URI: `http://127.0.0.1:8888/callback`. Tick **Web API**.
-3. Copy the **Client ID** into `config.json` as `spotifyClientId`. No secret needed.
+3. Copy the **Client ID** (`spotifyClientId`). No secret needed.
 
 The first `npm start` opens your browser once to allow access.
 
@@ -62,6 +69,11 @@ The first `npm start` opens your browser once to allow access.
 > as your status") so it doesn't cover the lyrics.
 
 ### 3. The karaoke picture worker (free)
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Iouzy/karaokord/tree/main/worker)
+
+Click the button and follow Cloudflare's steps, then put the worker's address in `config.json`
+as `cardUrl`. Or by hand:
 
 1. In the [Cloudflare dashboard](https://dash.cloudflare.com), open **Workers & Pages → Create →
    Create Worker** (start from "Hello World"), name it `karaokord` and click **Deploy**.
@@ -91,6 +103,7 @@ Play something on Spotify. Your status follows the song, and clears when you pau
 | `syncOffsetMs` | `1500` | How early each line shows, to make up for Spotify's and Discord's delays. Lyrics late? Raise it. Early? Lower it |
 | `bass` | `true` | `true`, `false`, or a list of song names, like `["never gonna", "bohemian"]` |
 | `showNextLine` | `true` | Show the next line under the current one |
+| `songColors` | `true` | Theme each picture with the colours of the album cover |
 
 ## Good to know
 
@@ -112,10 +125,12 @@ src/karaoke.js     picks the line being sung and builds the picture address
 src/lrclib.js      finds timed lyrics (with word timings when available)
 src/spotify.js     Spotify login (PKCE, no secret) and now playing
 src/discord.js     Discord connection, update limit, reconnects
+src/color.js       picks each song's colour from its cover
+src/setup.js       npm run setup
 worker/            the picture worker (one self-contained file)
 ```
 
 ## Credits
 
-Lyrics by [LRCLIB](https://lrclib.net). Discord connection by
+Lyrics by [LRCLIB](https://lrclib.net). Demo covers from Apple's public iTunes Search. Discord connection by
 [@xhayper/discord-rpc](https://github.com/xhayper/discord-rpc). MIT licence.

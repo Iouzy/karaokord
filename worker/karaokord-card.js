@@ -8,6 +8,7 @@
 //     w  when each word starts, in hundredths of a second from when the picture loads,
 //        written in base 36 and separated by "." ("-" in front = already sung)
 //     fx "b" for bass mode: the text jumps on every word
+//     c  the song's colour as 6 hex digits (from the album cover); the picture is themed with it
 //
 // The picture plays once and then stays on the last line.
 
@@ -19,7 +20,7 @@ const PAD_X = 4, MAX_COLS = Math.floor((SIZE - 2 * PAD_X) / CW), MAX_ROWS = 5;
 const BAND = 16;       // height of the top band with the music note
 
 // 0 background, 1 top band, 2 unsung text, 3 sung text, 4 current word, 5 shadow, 6 note, 7 band edge
-const PALETTE = [
+const DEFAULT_PALETTE = [
   [18, 16, 31], [28, 24, 56], [86, 80, 128], [255, 255, 255],
   [255, 79, 154], [6, 5, 12], [140, 155, 255], [44, 38, 82],
 ];
@@ -107,34 +108,35 @@ function layout(words) {
 }
 
 // ─── Drawing ─────────────────────────────────────────────────────────────────
-function background(eq = [7, 9, 5, 10, 6], flash = false) {
-  const px = new Uint8Array(SIZE * SIZE);
-  for (let y = 0; y < BAND; y++) px.fill(y === BAND - 1 ? (flash ? 4 : 7) : 1, y * SIZE, (y + 1) * SIZE);
-  // a little music note and an equalizer in the top band
-  const note = ["00110", "00101", "00100", "00100", "01100", "11100", "01000"];
-  note.forEach((row, ry) => [...row].forEach((b, rx) => { if (b === "1") rect(px, 8 + rx * 2, 1 + ry * 2, 2, 2, 6); }));
-  eq.forEach((h, k) => rect(px, 20 + k * 6, 14 - h, 3, h, flash ? 4 : 6));
-  return px;
-}
-
 function rect(px, x, y, w, h, c) {
   for (let yy = Math.max(0, y); yy < Math.min(SIZE, y + h); yy++) px.fill(c, yy * SIZE + Math.max(0, x), yy * SIZE + Math.min(SIZE, x + w));
 }
 
-function drawText(px, box, color, dx = 0, dy = 0) {
+/** The top-left corner of every lit 2×2 dot in a word, worked out once per word and reused. */
+function dotsOf(box) {
+  if (box.dots) return box.dots;
+  const dots = [];
   [...box.text].forEach((ch, i) => {
     const g = glyph(ch);
     if (!g) return;
     g.forEach((row, ry) => {
       if (!row) return;
-      [...row].forEach((b, rx) => {
-        if (b !== "1") return;
-        const x = box.x + dx + (i * 6 + rx) * S, y = box.y + dy + ry * S;
-        if (color !== 2) rect(px, x + 1, y + 1, S, S, 5); // shadow under lit words
-        rect(px, x, y, S, S, color);
-      });
+      for (let rx = 0; rx < row.length; rx++) if (row[rx] === "1") dots.push(box.x + (i * 6 + rx) * S, box.y + ry * S);
     });
   });
+  return (box.dots = dots);
+}
+
+function dot(px, x, y, c) {
+  if (x < 0 || y < 0 || x + 1 >= SIZE || y + 1 >= SIZE) return rect(px, x, y, 2, 2, c);
+  const i = y * SIZE + x;
+  px[i] = px[i + 1] = px[i + SIZE] = px[i + SIZE + 1] = c;
+}
+
+function drawText(px, box, color, dx = 0, dy = 0) {
+  const d = dotsOf(box);
+  for (let k = 0; k < d.length; k += 2) dot(px, d[k] + dx + 1, d[k + 1] + dy + 1, 5); // shadow, so words stay readable over the visualizer
+  for (let k = 0; k < d.length; k += 2) dot(px, d[k] + dx, d[k + 1] + dy, color);
 }
 
 // ─── GIF encoding (LZW, one shared 8-colour palette) ─────────────────────────
@@ -189,11 +191,11 @@ function lzw(indices, minCode, out) {
   out.n = p;
 }
 
-function changedRect(a, b) {
+function changedRect(a, b, rows = SIZE) {
   const rowDiff = (y) => { for (let i = y * SIZE, e = i + SIZE; i < e; i++) if (a[i] !== b[i]) return true; return false; };
-  let y0 = 0, y1 = SIZE - 1;
-  while (y0 < SIZE && !rowDiff(y0)) y0++;
-  if (y0 === SIZE) return { x: 0, y: 0, w: 1, h: 1 }; // nothing changed
+  let y0 = 0, y1 = rows - 1;
+  while (y0 < rows && !rowDiff(y0)) y0++;
+  if (y0 >= rows) return { x: 0, y: 0, w: 1, h: 1 }; // nothing changed
   while (!rowDiff(y1)) y1--;
   let x0 = SIZE, x1 = -1;
   for (let y = y0; y <= y1; y++) {
@@ -204,16 +206,39 @@ function changedRect(a, b) {
   return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 
-function gif(frames) {
+// ─── Colours from the song ───────────────────────────────────────────────────
+const mixRgb = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+/** A palette built around one colour: dark tinted background, the colour itself for the current word. */
+export function paletteFor(hex) {
+  if (!/^[0-9a-f]{6}$/i.test(hex ?? "")) return DEFAULT_PALETTE;
+  const base = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  // The current word gets the colour at full strength: vivid and bright, so it pops on the dark background.
+  const max = Math.max(...base), min = Math.min(...base);
+  const sat = max ? (max - min) / max : 0;
+  const vivid = max === min ? [255, 255, 255] : base.map((v) => {
+    const t = (v - min) / (max - min); // 0 for the weakest channel, 1 for the strongest
+    return Math.round(255 * (1 - Math.max(sat, 0.65) * (1 - t)));
+  });
+  const c = lum(vivid) < 0.35 ? mixRgb(vivid, [255, 255, 255], 0.3) : vivid;
+  const black = [8, 7, 14];
+  return [
+    mixRgb(black, base, 0.14), mixRgb(black, base, 0.28), mixRgb([92, 90, 108], base, 0.2), [255, 255, 255],
+    c, [4, 4, 8], mixRgb([200, 200, 220], c, 0.5), mixRgb(black, c, 0.55),
+  ];
+}
+
+function gif(frames, palette = DEFAULT_PALETTE) {
   const out = new Bytes();
   out.push(...[..."GIF89a"].map((c) => c.charCodeAt(0)));
   out.u16(SIZE); out.u16(SIZE);
   out.push(0xf2, 0, 0); // global palette of 8 colours
-  for (const c of PALETTE) out.push(...c);
+  for (const c of palette) out.push(...c);
   let prev = null;
   for (const f of frames) {
     // Only the part that changed since the last frame is stored.
-    const r = prev ? changedRect(prev, f.px) : { x: 0, y: 0, w: SIZE, h: SIZE };
+    const r = prev ? changedRect(prev, f.px, f.bandOnly ? BAND : SIZE) : { x: 0, y: 0, w: SIZE, h: SIZE };
     prev = f.px;
     // No looping block, so the picture plays once and stays on the last frame.
     out.push(0x21, 0xf9, 4, 0x04); out.u16(Math.max(0, Math.min(65535, Math.round(f.delay)))); out.push(0, 0);
@@ -227,14 +252,68 @@ function gif(frames) {
 }
 
 // ─── The picture ─────────────────────────────────────────────────────────────
-const CALM_EQ = [7, 9, 5, 10, 6];
-const HIT_EQ = [[12, 10, 13, 11, 12], [9, 13, 10, 12, 8], [11, 8, 12, 9, 13]];
 // A "bass hit" on each word: the text drops, wobbles sideways and settles (hundredths of a second).
 const HIT = [{ dx: 0, dy: 5, t: 4 }, { dx: 2, dy: -2, t: 4 }, { dx: -2, dy: 1, t: 4 }];
+const IDLE_STEP = 20; // between words, the equalizer moves on its own every 0.2 s
+const ORB_X = 64, ORB_Y = 72, ORB_R = 26, SPIKES = 28;
+// Bubbles drifting up behind the words: [x, speed, phase, size]
+const BUBBLES = [[14, 9, 0, 2], [30, 6, 40, 1], [47, 11, 75, 2], [80, 7, 20, 1], [96, 10, 60, 2], [112, 8, 90, 1], [60, 5, 105, 1], [122, 12, 33, 1]];
 
-function paint(boxes, colorOf, dx = 0, dy = 0, eq = CALM_EQ, flash = false) {
-  const px = background(eq, flash);
+/** How hard the music "hits" at time t: jumps to 1 when a word starts and fades over ~0.2 s. */
+function pulseAt(t, starts) {
+  let p = 0;
+  for (const s of starts) { if (s > t) break; const d = t - s; if (d < 40) p = Math.max(p, Math.exp(-d / 12)); }
+  return p;
+}
+
+const wob = (k, t) => Math.sin(k * 1.7 + t * 0.09) * 0.5 + Math.sin(k * 3.1 - t * 0.05) * 0.5; // -1..1
+
+/**
+ * t moves the top band; orbT and orbPulse move the orb and bubbles. Between words only the band
+ * keeps moving: a small part of the picture, so the worker stays fast.
+ */
+// The orb and bubbles below the band, drawn once per (orbT, bubT) and reused.
+function orbLayer(orbT, orbPulse, bubT) {
+  const px = new Uint8Array(SIZE * SIZE);
+  const r = ORB_R + orbPulse * 5;
+  const r2 = r * r;
+  for (let y = Math.max(BAND, Math.floor(ORB_Y - r)); y <= Math.min(SIZE - 1, ORB_Y + r); y++) {
+    const dy = y - ORB_Y, half = Math.sqrt(Math.max(0, r2 - dy * dy));
+    px.fill(1, y * SIZE + Math.max(0, Math.ceil(ORB_X - half)), y * SIZE + Math.min(SIZE, Math.floor(ORB_X + half) + 1));
+  }
+  for (let k = 0; k < SPIKES; k++) {
+    const a = (k / SPIKES) * Math.PI * 2 + orbT * 0.004;
+    const len = 3 + (wob(k, orbT) + 1) * 2.5 + orbPulse * (4 + 4 * Math.abs(wob(k + 7, orbT)));
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (let d = r + 1; d < r + len; d += 1.5) {
+      const x = Math.round(ORB_X + ca * d), y = Math.round(ORB_Y + sa * d);
+      if (y > BAND) rect(px, x, y, 2, 2, 7);
+    }
+  }
+  for (const [bx, speed, phase, size] of BUBBLES) {
+    const y = SIZE - (((bubT * speed) / 40 + phase) % (SIZE - BAND));
+    rect(px, Math.round(bx + Math.sin((bubT + phase * 9) / 30) * 2), Math.round(y), size + 1, size + 1, 6);
+  }
+  return px;
+}
+
+// Top band: a music note that bounces and an equalizer that never sits still.
+const NOTE = ["00110", "00101", "00100", "00100", "01100", "11100", "01000"];
+function drawBand(px, t, pulse, flash) {
+  for (let y = 0; y < BAND; y++) px.fill(y === BAND - 1 ? (flash ? 4 : 7) : 1, y * SIZE, (y + 1) * SIZE);
+  const nb = pulse > 0.5 ? -1 : 0;
+  NOTE.forEach((row, ry) => { for (let rx = 0; rx < 5; rx++) if (row[rx] === "1") rect(px, 8 + rx * 2, 1 + ry * 2 + nb, 2, 2, 6); });
+  for (let k = 0; k < 16; k++) {
+    const h = Math.max(1, Math.min(13, Math.round(4 + (wob(k, t * 1.6) + 1) * 3 + pulse * 5 * (0.5 + Math.abs(wob(k + 3, t))))));
+    rect(px, 22 + k * 6, 14 - h, 3, h, pulse > 0.7 ? 4 : 6);
+  }
+}
+
+/** One picture: the orb layer, the words drawn on top, and the band. */
+function compose(orb, boxes, colorOf, dx, dy, t, pulse, flash) {
+  const px = orb.slice();
   for (const b of boxes) drawText(px, b, colorOf(b.word), dx, dy);
+  drawBand(px, t, pulse, flash);
   return px;
 }
 
@@ -243,7 +322,7 @@ function paint(boxes, colorOf, dx = 0, dy = 0, eq = CALM_EQ, flash = false) {
  *            when its first word starts, so fast lines aren't skipped.
  * offsetsCs: when each word starts (all lines, in order), in hundredths of a second from load.
  */
-export function renderCard(lines, offsetsCs, bass = false) {
+export function renderCard(lines, offsetsCs, bass = false, color = null) {
   const pages = [], pageOf = [];
   let first = 0;
   for (const ws of lines) {
@@ -256,16 +335,18 @@ export function renderCard(lines, offsetsCs, bass = false) {
   const shown = (i) => pages[pageOf[i]].some((b) => b.word === i);
   const all = [...Array(total).keys()];
   const order = all.filter((i) => offsetsCs[i] > 0 && shown(i));
+  const starts = order.map((i) => offsetsCs[i]);
   const sung = new Set(all.filter((i) => offsetsCs[i] <= 0));
-  const colorFor = (current) => (w) => (w === current ? 4 : sung.has(w) ? 3 : 2);
-  // Start on the page of the last word already sung.
+  // Colours for each word, frozen at this moment (words keep being sung after it).
+  const colorFor = (current) => { const done = new Set(sung); return (w) => (w === current ? 4 : done.has(w) ? 3 : 2); };
   let page = 0;
   for (const i of sung) page = Math.max(page, pageOf[i]);
 
-  // Pictures with the time they appear; turned into GIF frames at the end.
-  const events = [];
-  const at = (t, px) => events.push({ t, px });
-  at(0, paint(pages[page], colorFor(null)));
+  // Scenes: what the words look like from time t. The visualizer is drawn for each frame's own time.
+  const scenes = [];
+  // orbT: the moment the orb and bubbles are drawn at for this scene (they only move twice per word).
+  const at = (t, boxes, colorOf, shake = null, orbT = t) => scenes.push({ t, boxes, colorOf, shake, orbT });
+  at(0, pages[page], colorFor(null));
   order.forEach((i, k) => {
     const t = offsetsCs[i];
     const next = k + 1 < order.length ? offsetsCs[order[k + 1]] : t + 60;
@@ -273,32 +354,52 @@ export function renderCard(lines, offsetsCs, bass = false) {
       // A pause between lines: finish the old line, then show the new one just before it starts.
       const prev = k ? offsetsCs[order[k - 1]] : 0;
       if (t - prev > 200) {
-        at(prev + 100, paint(pages[page], colorFor(null)));
-        at(t - 60, paint(pages[pageOf[i]], colorFor(null)));
+        at(prev + 100, pages[page], colorFor(null));
+        at(t - 60, pages[pageOf[i]], colorFor(null));
       }
       page = pageOf[i];
     }
-    const boxes = pages[page], color = colorFor(i);
-    // Bass hit, if there's time for it before the next word.
-    let start = t;
-    if (bass && next - t >= 24) {
-      HIT.forEach((h, n) => { at(start, paint(boxes, color, h.dx, h.dy, HIT_EQ[(k + n) % HIT_EQ.length], n === 0)); start += h.t; });
-    }
-    at(start, paint(boxes, color));
+    const boxes = pages[page], colorOf = colorFor(i);
+    // On the word: the orb pulses (and the text shakes, with bass); 0.12 s later the orb settles.
+    if (next - t >= 24) {
+      if (bass) {
+        // The orb settles during the last wobble, so it doesn't need a picture of its own.
+        let start = t;
+        HIT.forEach((h, n) => { at(start, boxes, colorOf, { ...h, flash: n === 0 }, n < 2 ? t : t + 12); start += h.t; });
+      } else at(t, boxes, colorOf, null, t);
+      at(t + 12, boxes, colorOf, null, t + 12);
+      for (const sc of scenes.slice(-4)) if (sc.t >= t) sc.bubT = t;
+    } else at(t, boxes, colorOf, null, t);
     sung.add(i);
   });
-  // Last word turns white and the picture stays there.
-  if (order.length) at(offsetsCs[order.at(-1)] + 60, paint(pages[page], colorFor(null)));
+  const end = order.length ? offsetsCs[order.at(-1)] + 60 : 0;
+  if (order.length) at(end, pages[page], colorFor(null));
 
-  // Browsers slow down frames shorter than 2 hundredths, so a frame that would be that short is
-  // replaced by the one after it.
+  // Frames: every scene change, plus in-between frames so the visualizer keeps moving.
   const frames = [];
-  events.forEach((e, n) => {
-    const nextT = events[n + 1]?.t;
-    if (nextT === undefined) frames.push({ px: e.px, delay: 0 });
-    else if (nextT - e.t >= 2) frames.push({ px: e.px, delay: nextT - e.t });
+  const orbs = new Map();
+  const orbFor = (orbT, bubT) => {
+    const key = `${orbT}|${bubT}`;
+    if (!orbs.has(key)) orbs.set(key, orbLayer(orbT, pulseAt(orbT, starts), bubT));
+    return orbs.get(key);
+  };
+  scenes.forEach((sc, n) => {
+    const until = scenes[n + 1]?.t;
+    if (until !== undefined && until - sc.t < 2) return; // browsers slow down frames this short
+    const times = [sc.t];
+    if (until !== undefined && !sc.shake) for (let tt = sc.t + IDLE_STEP; tt < until - 4; tt += IDLE_STEP) times.push(tt);
+    const s = sc.shake;
+    const orb = orbFor(sc.orbT, sc.bubT ?? sc.orbT);
+    let px = null;
+    times.forEach((tt, m) => {
+      // Between words only the band changes: reuse the picture and redraw the band.
+      if (m === 0) px = compose(orb, sc.boxes, sc.colorOf, s?.dx ?? 0, s?.dy ?? 0, tt, pulseAt(tt, starts), !!s?.flash);
+      else { px = px.slice(); drawBand(px, tt, pulseAt(tt, starts), false); }
+      const stop = m + 1 < times.length ? times[m + 1] : until;
+      frames.push({ px, delay: stop === undefined ? 0 : stop - tt, bandOnly: m > 0 });
+    });
   });
-  return gif(frames);
+  return gif(frames, paletteFor(color));
 }
 
 export function parseRequest(url) {
@@ -319,7 +420,8 @@ export function parseRequest(url) {
     return Number.isFinite(n) ? n : i * 40; // missing timing: one word every 0.4 s
   });
   const bass = url.searchParams.get("fx") === "b";
-  return { lines, words, offsets, bass };
+  const color = url.searchParams.get("c");
+  return { lines, words, offsets, bass, color };
 }
 
 export default {
@@ -330,8 +432,8 @@ export default {
     const cache = globalThis.caches?.default;
     const hit = cache && (await cache.match(request));
     if (hit) return hit;
-    const { lines, offsets, bass } = parseRequest(url);
-    const body = renderCard(lines.length ? lines : [["♪"]], lines.length ? offsets : [0], bass);
+    const { lines, offsets, bass, color } = parseRequest(url);
+    const body = renderCard(lines.length ? lines : [["♪"]], lines.length ? offsets : [0], bass, color);
     const res = new Response(body, { headers: { "Content-Type": "image/gif", "Cache-Control": "public, max-age=31536000, immutable" } });
     if (cache && ctx) ctx.waitUntil(cache.put(request, res.clone()));
     return res;
