@@ -9,6 +9,8 @@
 //        written in base 36 and separated by "." ("-" in front = already sung)
 //     fx "b" for bass mode: the text jumps on every word
 //     c  the song's colour as 6 hex digits (from the album cover); the picture is themed with it
+//     e  until when the equalizer keeps moving after the last word (hundredths of a second, base 36),
+//        so the picture doesn't freeze while waiting for the next line
 //
 // The picture plays once and then stays on the last line.
 
@@ -255,6 +257,7 @@ function gif(frames, palette = DEFAULT_PALETTE) {
 // A "bass hit" on each word: the text drops, wobbles sideways and settles (hundredths of a second).
 const HIT = [{ dx: 0, dy: 5, t: 4 }, { dx: 2, dy: -2, t: 4 }, { dx: -2, dy: 1, t: 4 }];
 const IDLE_STEP = 20; // between words, the equalizer moves on its own every 0.2 s
+const TAIL_STEP = 30, MAX_TAIL = 2000; // after the last word: every 0.3 s, for up to 20 s
 const ORB_X = 64, ORB_Y = 72, ORB_R = 26, SPIKES = 28;
 // Bubbles drifting up behind the words: [x, speed, phase, size]
 const BUBBLES = [[14, 9, 0, 2], [30, 6, 40, 1], [47, 11, 75, 2], [80, 7, 20, 1], [96, 10, 60, 2], [112, 8, 90, 1], [60, 5, 105, 1], [122, 12, 33, 1]];
@@ -322,7 +325,7 @@ function compose(orb, boxes, colorOf, dx, dy, t, pulse, flash) {
  *            when its first word starts, so fast lines aren't skipped.
  * offsetsCs: when each word starts (all lines, in order), in hundredths of a second from load.
  */
-export function renderCard(lines, offsetsCs, bass = false, color = null) {
+export function renderCard(lines, offsetsCs, bass = false, color = null, holdUntil = 0) {
   const pages = [], pageOf = [];
   let first = 0;
   for (const ws of lines) {
@@ -383,11 +386,14 @@ export function renderCard(lines, offsetsCs, bass = false, color = null) {
     if (!orbs.has(key)) orbs.set(key, orbLayer(orbT, pulseAt(orbT, starts), bubT));
     return orbs.get(key);
   };
+  // After the last word the band keeps moving until the next line is due, then the picture rests.
+  const tailEnd = Math.min(Math.max(holdUntil, end), end + MAX_TAIL);
   scenes.forEach((sc, n) => {
     const until = scenes[n + 1]?.t;
     if (until !== undefined && until - sc.t < 2) return; // browsers slow down frames this short
     const times = [sc.t];
     if (until !== undefined && !sc.shake) for (let tt = sc.t + IDLE_STEP; tt < until - 4; tt += IDLE_STEP) times.push(tt);
+    if (until === undefined) for (let tt = sc.t + TAIL_STEP; tt <= tailEnd; tt += TAIL_STEP) times.push(tt);
     const s = sc.shake;
     const orb = orbFor(sc.orbT, sc.bubT ?? sc.orbT);
     let px = null;
@@ -421,7 +427,8 @@ export function parseRequest(url) {
   });
   const bass = url.searchParams.get("fx") === "b";
   const color = url.searchParams.get("c");
-  return { lines, words, offsets, bass, color };
+  const hold = parseInt(url.searchParams.get("e") ?? "", 36);
+  return { lines, words, offsets, bass, color, hold: Number.isFinite(hold) ? hold : 0 };
 }
 
 export default {
@@ -432,8 +439,8 @@ export default {
     const cache = globalThis.caches?.default;
     const hit = cache && (await cache.match(request));
     if (hit) return hit;
-    const { lines, offsets, bass, color } = parseRequest(url);
-    const body = renderCard(lines.length ? lines : [["♪"]], lines.length ? offsets : [0], bass, color);
+    const { lines, offsets, bass, color, hold } = parseRequest(url);
+    const body = renderCard(lines.length ? lines : [["♪"]], lines.length ? offsets : [0], bass, color, hold);
     const res = new Response(body, { headers: { "Content-Type": "image/gif", "Cache-Control": "public, max-age=31536000, immutable" } });
     if (cache && ctx) ctx.waitUntil(cache.put(request, res.clone()));
     return res;

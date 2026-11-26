@@ -28,9 +28,12 @@ export function cardUrl(base, lines, idx, pos, bass, color = null) {
   const cs = (ms) => { const n = Math.round((ms - pos) / 10); return n < 0 ? `-${(-n).toString(36)}` : n.toString(36); };
   const clean = (w) => w.replace(/~/g, "-"); // "~" separates lines in the address
   const enc = (s) => encodeURIComponent(s).replace(/%20/g, "+");
+  // Keep the picture moving until the line after these is due (plus Discord's delay), up to 20 s.
+  const nextMs = lines[chosen.at(-1) + 1]?.ms ?? pos + 20_000;
+  const hold = Math.max(0, Math.min(2000, Math.round((nextMs - pos) / 10) + 200)).toString(36);
   const build = (wordLines) => {
     const flat = wordLines.flat();
-    return `${base}/l.gif?t=${enc(wordLines.map((ws) => ws.map((w) => clean(w.text)).join(" ")).join("~"))}&w=${flat.map((w) => cs(w.ms)).join(".")}${bass ? "&fx=b" : ""}${color ? `&c=${color}` : ""}`;
+    return `${base}/l.gif?t=${enc(wordLines.map((ws) => ws.map((w) => clean(w.text)).join(" ")).join("~"))}&w=${flat.map((w) => cs(w.ms)).join(".")}${bass ? "&fx=b" : ""}${color ? `&c=${color}` : ""}&e=${hold}`;
   };
   // Discord takes addresses up to 256 characters: drop later lines first, then sung words.
   for (let n = chosen.length; n >= 1; n--) {
